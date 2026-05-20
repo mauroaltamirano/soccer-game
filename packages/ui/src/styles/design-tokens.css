@@ -1,0 +1,63 @@
+/*
+  Design tokens for the Soccer Game app.
+  Pixel art aesthetic: limited palette, crisp edges, no anti-aliasing on images.
+*/
+
+:root {
+  /* Colour palette — turf & stadium */
+  --color-pitch-green-dark: #1a6b2a;
+  --color-pitch-green-mid: #22883a;
+  --color-pitch-green-light: #2aac4a;
+  --color-pitch-line: #f0f0d0;
+
+  --color-sky-blue: #5ba4d8;
+  --color-crowd-shadow: #1e2030;
+
+  --color-ball-white: #f4f4f0;
+  --color-ball-black: #1a1a1a;
+
+  /* UI chrome */
+  --color-ui-bg: #0f0f1a;
+  --color-ui-surface: #1c1c2e;
+  --color-ui-border: #3a3a5a;
+  --color-ui-text-primary: #f0f0f0;
+  --color-ui-text-secondary: #9090b0;
+
+  --color-accent-yellow: #f5d800;
+  --color-accent-red: #e83030;
+  --color-accent-green: #30d860;
+
+  /* Star rating */
+  --color-star-filled: #f5d800;
+  --color-star-empty: #3a3a5a;
+
+  /* Pixel art rendering — never blur scaled sprites */
+  --image-rendering-pixel: pixelated;
+
+  /* Typography — pixel-style font stack */
+  --font-family-ui: 'Press Start 2P', 'Courier New', monospace;
+  --font-size-small: 0.5rem;
+  --font-size-base: 0.75rem;
+  --font-size-large: 1rem;
+  --font-size-title: 1.5rem;
+
+  /* Spacing — multiples of 8px base grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Touch target minimum */
+  --touch-target-min: 44px;
+
+  /* Game canvas upscale factor: 16x16 sprites rendered at 64x64 */
+  --pixel-scale: 4;
+}
+
+/* Apply pixel rendering globally to images so sprites stay crisp */
+img,
+canvas {
+  image-rendering: var(--image-rendering-pixel);
+}

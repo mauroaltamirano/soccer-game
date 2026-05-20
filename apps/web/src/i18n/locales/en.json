@@ -1,0 +1,33 @@
+{
+  "app": {
+    "title": "Soccer Mini-Games"
+  },
+  "nav": {
+    "home": "Home",
+    "settings": "Settings"
+  },
+  "home": {
+    "headline": "Pick a Game",
+    "subheadline": "Choose your challenge"
+  },
+  "hud": {
+    "score": "Score"
+  },
+  "gameCard": {
+    "playAriaLabel": "Play {title}",
+    "lockedAriaLabel": "{title} — locked"
+  },
+  "starRating": {
+    "ariaLabel": "{stars} out of {maxStars} stars"
+  },
+  "gameOver": {
+    "title": "Game Over",
+    "finalScore": "Final Score",
+    "playAgain": "Play Again",
+    "backToMenu": "Back to Menu"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language"
+  }
+}

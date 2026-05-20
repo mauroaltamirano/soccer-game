@@ -1,0 +1,17 @@
+{
+  "name": "@soccer-game/ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles": "./src/styles/design-tokens.css"
+  },
+  "dependencies": {
+    "@soccer-game/game-core": "workspace:*",
+    "phaser": "^4.1.0"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  }
+}

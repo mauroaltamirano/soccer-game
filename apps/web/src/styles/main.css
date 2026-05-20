@@ -1,0 +1,27 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--color-ui-bg);
+  color: var(--color-ui-text-primary);
+  font-family: var(--font-family-ui);
+  -webkit-font-smoothing: none; /* keep pixel font crisp */
+  font-smooth: never;
+}
+
+button {
+  font-family: inherit;
+}

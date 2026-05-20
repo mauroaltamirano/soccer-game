@@ -1,0 +1,13 @@
+{
+  "name": "@soccer-game/game-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "eventemitter3": "^5.0.4",
+    "phaser": "^4.1.0"
+  }
+}
