@@ -53,16 +53,21 @@ export class DribblingSlalomScene extends MiniGameScene {
     this.cameraOffsetY = 0
     this.isGameOver = false
     this.isFinished = false
+    this.obstacles = []
 
     const courseScreenLength = height * 6
     this.courseHeightWorld = courseScreenLength
-    this.finishLineWorldY = 0 // world Y=0 is the top (finish)
+    this.finishLineWorldY = this.courseHeightWorld // finish is at the far end of the course
 
     // Ball starts at the bottom of the visible area
     this.ballPosition = new Phaser.Math.Vector2(width / 2, height * 0.82)
     this.targetPosition = new Phaser.Math.Vector2(width / 2, height * 0.82)
 
     this.backgroundGraphics = this.add.graphics()
+
+    // Build obstacles first so ball + HUD render on top of them
+    this.buildObstacles()
+
     this.ballGraphics = this.add.graphics()
     this.finishLineGraphics = this.add.graphics()
 
@@ -70,7 +75,6 @@ export class DribblingSlalomScene extends MiniGameScene {
       .text(width / 2, height * 0.03, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffffff' })
       .setOrigin(0.5, 0)
 
-    this.buildObstacles()
     this.drawBackground()
     this.drawBall()
 
@@ -265,8 +269,8 @@ export class DribblingSlalomScene extends MiniGameScene {
 
     this.updateHud()
 
-    // Check if ball reached finish line
-    if (this.ballPosition.y < finishScreenY + 20 || this.cameraOffsetY >= this.courseHeightWorld) {
+    // Check if ball reached finish line (course fully scrolled)
+    if (this.cameraOffsetY >= this.courseHeightWorld) {
       this.finishCourse()
       return
     }
