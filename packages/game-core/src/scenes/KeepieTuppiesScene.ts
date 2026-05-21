@@ -110,7 +110,7 @@ export class KeepieTuppiesScene extends MiniGameScene {
     if (this.textures.exists(key)) return key
 
     const size = Math.ceil(radius * 2) + 4
-    const g = this.make.graphics({ add: false })
+    const g = this.add.graphics()
 
     g.fillStyle(0xf4f4f0)
     g.fillCircle(size / 2, size / 2, radius)
