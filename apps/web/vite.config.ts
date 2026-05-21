@@ -3,7 +3,11 @@ import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
 
+// Base path is /soccer-game/ on GitHub Pages, / everywhere else (custom domain, local dev)
+const base = process.env.DEPLOY_BASE ?? '/'
+
 export default defineConfig({
+  base,
   plugins: [
     vue(),
     VitePWA({
