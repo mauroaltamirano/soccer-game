@@ -37,6 +37,10 @@ onMounted(() => {
     backgroundColor: '#0f0f1a',
     pixelArt: true,
     scene: props.sceneClasses,
+    physics: {
+      default: 'arcade',
+      arcade: { gravity: { y: 0 }, debug: false },
+    },
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
