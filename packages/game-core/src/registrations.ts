@@ -26,11 +26,11 @@ registerGame({
 
 registerGame({
   id: 'keepie-tuppies',
-  title: 'Keepie-Uppies',
-  description: 'Keep the ball in the air for as long as possible.',
+  title: 'Defender Buster',
+  description: 'Break through the wall of defenders and score the goal.',
   thumbnailTextureKey: 'thumbnail-keepie-tuppies',
   sceneClass: KeepieTuppiesScene,
-  tags: ['juggling', 'endless'],
+  tags: ['arcade', 'breakout'],
 })
 
 registerGame({
