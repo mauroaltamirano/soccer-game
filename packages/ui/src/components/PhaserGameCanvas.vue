@@ -39,7 +39,7 @@ onMounted(() => {
     scene: props.sceneClasses,
     physics: {
       default: 'arcade',
-      arcade: { gravity: { y: 0 }, debug: false },
+      arcade: { gravity: { x: 0, y: 0 }, debug: false },
     },
     scale: {
       mode: Phaser.Scale.FIT,
