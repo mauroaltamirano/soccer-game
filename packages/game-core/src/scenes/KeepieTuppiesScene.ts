@@ -110,20 +110,17 @@ export class KeepieTuppiesScene extends MiniGameScene {
     if (this.textures.exists(key)) return key
 
     const size = Math.ceil(radius * 2) + 4
-    const rt = this.add.renderTexture(0, 0, size, size).setVisible(false)
-    const tempGraphics = this.add.graphics()
+    const g = this.make.graphics({ add: false })
 
-    tempGraphics.fillStyle(0xf4f4f0)
-    tempGraphics.fillCircle(size / 2, size / 2, radius)
-    tempGraphics.fillStyle(0x1a1a1a)
-    tempGraphics.fillCircle(size / 2, size / 2 - radius * 0.4, radius * 0.28)
-    tempGraphics.fillCircle(size / 2 - radius * 0.45, size / 2 + radius * 0.3, radius * 0.22)
-    tempGraphics.fillCircle(size / 2 + radius * 0.45, size / 2 + radius * 0.3, radius * 0.22)
+    g.fillStyle(0xf4f4f0)
+    g.fillCircle(size / 2, size / 2, radius)
+    g.fillStyle(0x1a1a1a)
+    g.fillCircle(size / 2, size / 2 - radius * 0.4, radius * 0.28)
+    g.fillCircle(size / 2 - radius * 0.45, size / 2 + radius * 0.3, radius * 0.22)
+    g.fillCircle(size / 2 + radius * 0.45, size / 2 + radius * 0.3, radius * 0.22)
 
-    rt.draw(tempGraphics, 0, 0)
-    rt.saveTexture(key)
-    tempGraphics.destroy()
-    rt.destroy()
+    g.generateTexture(key, size, size)
+    g.destroy()
     return key
   }
 
