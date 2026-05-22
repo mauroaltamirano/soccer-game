@@ -9,12 +9,17 @@ const SPEED_PER_LEVEL = 22
 const MAX_BALL_SPEED = 560
 const BALL_RADIUS_FRACTION = 0.025
 
-// Player figure — fixed pixel sizes (scene runs at near-native resolution)
+// Player figure
 const PLAYER_BODY_HALF_WIDTH = 16
 const PLAYER_BODY_HALF_HEIGHT = 17
 const PLAYER_HEAD_RADIUS = 9
-// Top of body (where the ball bounces)
 const PLAYER_HIT_TOP = PLAYER_BODY_HALF_HEIGHT
+const PLAYER_MAX_SPEED = 480  // px/s — capped movement speed when dragging
+
+// Defender mini-figures drawn in grid cells
+const DEFENDER_FIG_BW = 9
+const DEFENDER_FIG_BH = 10
+const DEFENDER_FIG_HR = 5
 
 // Defender grid
 const BASE_DEFENDER_ROWS = 4
@@ -30,16 +35,19 @@ const VICTORY_BONUS_PER_LEVEL = 100
 const THREE_STAR_SCORE = 500
 const TWO_STAR_SCORE = 220
 
-// Combo — multiplier thresholds by consecutive hits without touching the paddle
+// Combo multiplier thresholds (consecutive defender hits without touching player)
 const COMBO_LEVELS: { atHits: number; multiplier: number }[] = [
   { atHits: 10, multiplier: 5 },
   { atHits: 6, multiplier: 3 },
   { atHits: 3, multiplier: 2 },
 ]
 
-// Referee obstacle
-const REFEREE_HALF_WIDTH = 24
-const REFEREE_HALF_HEIGHT = 11
+// Referee — appears from level 4, always exactly one
+const REFEREE_FIG_BW = 13
+const REFEREE_FIG_BH = 14
+const REFEREE_FIG_HR = 7
+const REFEREE_HITBOX_HALF_WIDTH = 18   // covers body + arms
+const REFEREE_HITBOX_HALF_HEIGHT = 27  // covers body + head approximately
 const REFEREE_BASE_SPEED = 70
 const REFEREE_SPEED_PER_LEVEL = 12
 const REFEREE_MAX_SPEED = 220
@@ -83,11 +91,12 @@ export class KeepieTuppiesScene extends MiniGameScene {
   private ballVelocityX = 0
   private ballVelocityY = 0
   private ballRadius = 0
-  private ballFrozen = false
-  private frozenUntilMs = 0
 
   private playerX = 0
   private playerY = 0
+  private targetPlayerX = 0
+  private playerFrozen = false
+  private playerFrozenUntilMs = 0
 
   private defenders: DefenderBlock[] = []
   private defendersAlive = 0
@@ -113,10 +122,11 @@ export class KeepieTuppiesScene extends MiniGameScene {
     this.comboCount = 0
     this.waiting = true
     this.isGameOver = false
-    this.ballFrozen = false
+    this.playerFrozen = false
     this.ballSpeed = BASE_BALL_SPEED
     this.ballRadius = width * BALL_RADIUS_FRACTION
     this.playerX = width / 2
+    this.targetPlayerX = width / 2
     this.playerY = height * 0.86
     this.defenders = []
     this.referees = []
@@ -149,14 +159,13 @@ export class KeepieTuppiesScene extends MiniGameScene {
     this.updateHud()
 
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (this.isGameOver) return
-      this.movePlayerTo(pointer.x)
+      if (this.isGameOver || this.playerFrozen) return
+      this.setTargetPlayerX(pointer.x)
       if (this.waiting) this.launch()
     })
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      if (this.isGameOver || !pointer.isDown) return
-      this.movePlayerTo(pointer.x)
-      if (this.waiting) this.placeBallOnPlayer()
+      if (this.isGameOver || !pointer.isDown || this.playerFrozen) return
+      this.setTargetPlayerX(pointer.x)
     })
 
     this.emitGameReady()
@@ -203,25 +212,13 @@ export class KeepieTuppiesScene extends MiniGameScene {
     for (const ref of this.referees) ref.graphics.destroy()
     this.referees = []
 
-    if (this.currentLevel < 2) return
+    if (this.currentLevel < 4) return
 
     const { width, height } = this.scale
-    const count = this.currentLevel >= 5 ? 2 : 1
-    const speed = Math.min(REFEREE_BASE_SPEED + (this.currentLevel - 2) * REFEREE_SPEED_PER_LEVEL, REFEREE_MAX_SPEED)
-    const refereeY = height * 0.62
-
-    for (let i = 0; i < count; i++) {
-      const startX = count === 1 ? width / 2 : (i === 0 ? width * 0.28 : width * 0.72)
-      const g = this.add.graphics()
-      const referee: RefereeObstacle = {
-        graphics: g,
-        x: startX,
-        y: refereeY,
-        velocityX: (i % 2 === 0 ? 1 : -1) * speed,
-      }
-      this.referees.push(referee)
-      this.drawReferee(referee)
-    }
+    const speed = Math.min(REFEREE_BASE_SPEED + (this.currentLevel - 4) * REFEREE_SPEED_PER_LEVEL, REFEREE_MAX_SPEED)
+    const g = this.add.graphics()
+    this.referees.push({ graphics: g, x: width / 2, y: height * 0.62, velocityX: speed })
+    this.drawReferee(this.referees[0]!)
   }
 
   private advanceLevel(): void {
@@ -229,7 +226,7 @@ export class KeepieTuppiesScene extends MiniGameScene {
     this.ballSpeed = Math.min(BASE_BALL_SPEED + (this.currentLevel - 1) * SPEED_PER_LEVEL, MAX_BALL_SPEED)
     this.currentScore += VICTORY_BONUS_PER_LEVEL * (this.currentLevel - 1)
     this.comboCount = 0
-    this.ballFrozen = false
+    this.playerFrozen = false
     this.updateHud()
 
     this.buildDefenders()
@@ -257,7 +254,7 @@ export class KeepieTuppiesScene extends MiniGameScene {
     this.comboText.setVisible(false)
   }
 
-  // ─── Drawing ─────────────────────────────────────────────────────────────────
+  // ─── Drawing helpers ──────────────────────────────────────────────────────────
 
   private drawBackground(): void {
     const { width, height } = this.scale
@@ -266,13 +263,11 @@ export class KeepieTuppiesScene extends MiniGameScene {
 
     g.fillStyle(0x5ba4d8)
     g.fillRect(0, 0, width, height * 0.10)
-
     g.lineStyle(4, 0xffffff)
     g.strokeRect(width * 0.06, 2, width * 0.88, height * 0.10)
 
     g.fillStyle(0x22883a)
     g.fillRect(0, height * 0.10, width, height)
-
     g.fillStyle(0x1e7d35, 0.5)
     const sw = width / 8
     for (let i = 0; i < 8; i += 2) g.fillRect(i * sw, height * 0.10, sw, height)
@@ -281,112 +276,133 @@ export class KeepieTuppiesScene extends MiniGameScene {
     g.lineBetween(0, height * 0.10, width, height * 0.10)
   }
 
+  // Shared player-figure drawing used for player, defenders, and referee.
+  // cx/cy is the body centre (waist level).
+  private drawPlayerFigure(
+    g: Phaser.GameObjects.Graphics,
+    cx: number, cy: number,
+    bw: number, bh: number, hr: number,
+    jerseyColor: number, shortsColor: number, hairColor: number,
+  ): void {
+    const legH = Math.max(3, Math.round(bh * 0.75))
+    const legW = Math.max(2, Math.round(bw * 0.65))
+    const sockH = Math.max(1, Math.round(legH * 0.4))
+    const bootH = Math.max(2, Math.round(bh * 0.35))
+    const armW = Math.max(2, Math.round(bw * 0.35))
+
+    // Shorts
+    g.fillStyle(shortsColor)
+    g.fillRect(cx - bw, cy, bw * 2, bh)
+
+    // Jersey
+    g.fillStyle(jerseyColor)
+    g.fillRect(cx - bw, cy - bh, bw * 2, bh)
+
+    // Arms
+    g.fillRect(cx - bw - armW, cy - bh + Math.round(bh * 0.1), armW, Math.round(bh * 0.7))
+    g.fillRect(cx + bw, cy - bh + Math.round(bh * 0.1), armW, Math.round(bh * 0.7))
+
+    // Legs (skin)
+    g.fillStyle(0xf4c098)
+    g.fillRect(cx - bw + 1, cy + bh, legW, legH)
+    g.fillRect(cx + bw - legW - 1, cy + bh, legW, legH)
+
+    // Socks
+    g.fillStyle(0xffffff)
+    g.fillRect(cx - bw + 1, cy + bh + legH - sockH, legW, sockH)
+    g.fillRect(cx + bw - legW - 1, cy + bh + legH - sockH, legW, sockH)
+
+    // Boots
+    g.fillStyle(0x111111)
+    g.fillRect(cx - bw - 1, cy + bh + legH, legW + 2, bootH)
+    g.fillRect(cx + bw - legW - 3, cy + bh + legH, legW + 2, bootH)
+
+    // Head
+    g.fillStyle(0xf4c098)
+    g.fillCircle(cx, cy - bh - hr, hr)
+
+    // Hair
+    g.fillStyle(hairColor)
+    g.fillCircle(cx, cy - bh - Math.round(hr * 1.55), Math.round(hr * 0.85))
+
+    // Eyes (only when large enough to be visible)
+    if (hr >= 4) {
+      g.fillStyle(0x1a1a1a)
+      const eyeOff = Math.max(1, Math.round(hr * 0.35))
+      const eyeR = Math.max(1, Math.round(hr * 0.2))
+      g.fillCircle(cx - eyeOff, cy - bh - hr - 1, eyeR)
+      g.fillCircle(cx + eyeOff, cy - bh - hr - 1, eyeR)
+    }
+  }
+
   private drawDefenderBlock(block: DefenderBlock): void {
     const g = block.graphics
     g.clear()
     if (!block.alive) return
 
-    const { centerX: cx, centerY: cy, halfWidth: hw, halfHeight: hh, row, health, maxHealth } = block
+    const { centerX: cx, centerY: cy, row, health, maxHealth } = block
     const isArmoured = maxHealth === 2
     const isCracked = isArmoured && health === 1
 
-    const fillColor = isArmoured
+    const jerseyColor = isArmoured
       ? (isCracked ? ARMOURED_CRACKED_COLOR : ARMOURED_COLOR)
-      : (ROW_COLORS[row] ?? 0xaaaaaa)
+      : (ROW_COLORS[row % ROW_COLORS.length] ?? 0xaaaaaa)
 
-    g.fillStyle(fillColor)
-    g.fillRect(cx - hw, cy - hh, hw * 2, hh * 2)
-    g.fillStyle(0xffffff, 0.25)
-    g.fillRect(cx - hw, cy - hh, hw * 2, 3)
-    g.fillStyle(0x000000, 0.2)
-    g.fillRect(cx - hw, cy + hh - 3, hw * 2, 3)
+    this.drawPlayerFigure(g, cx, cy, DEFENDER_FIG_BW, DEFENDER_FIG_BH, DEFENDER_FIG_HR,
+      jerseyColor, 0x1a1a5e, 0x3a2010)
 
     if (isCracked) {
       g.lineStyle(1, 0x666666, 0.9)
-      g.lineBetween(cx - hw * 0.2, cy - hh, cx + hw * 0.3, cy + hh * 0.6)
-      g.lineBetween(cx + hw * 0.3, cy + hh * 0.6, cx + hw * 0.6, cy + hh)
+      g.lineBetween(cx - 3, cy - DEFENDER_FIG_BH, cx + 2, cy + DEFENDER_FIG_BH * 0.6)
+      g.lineBetween(cx + 2, cy + DEFENDER_FIG_BH * 0.6, cx + 5, cy + DEFENDER_FIG_BH)
     }
-
-    // Little head
-    g.fillStyle(0xf4c098)
-    g.fillCircle(cx, cy - hh - 5, 5)
   }
 
   private drawReferee(referee: RefereeObstacle): void {
     const g = referee.graphics
     g.clear()
-    const { x, y } = referee
-    const hw = REFEREE_HALF_WIDTH
-    const hh = REFEREE_HALF_HEIGHT
+    const { x: cx, y: cy } = referee
+    const bw = REFEREE_FIG_BW
+    const bh = REFEREE_FIG_BH
+    const hr = REFEREE_FIG_HR
 
-    // Black and white stripes
-    const stripeW = hw * 2 / 4
-    for (let i = 0; i < 4; i++) {
-      g.fillStyle(i % 2 === 0 ? 0x111111 : 0xffffff)
-      g.fillRect(x - hw + i * stripeW, y - hh, stripeW, hh * 2)
-    }
-    // Border
-    g.lineStyle(1, 0x444444)
-    g.strokeRect(x - hw, y - hh, hw * 2, hh * 2)
-    // Head
-    g.fillStyle(0xf4c098)
-    g.fillCircle(x, y - hh - 6, 6)
-    // Whistle hint
-    g.fillStyle(0xf5d800)
-    g.fillRect(x + 2, y - hh - 5, 5, 3)
-  }
+    const legH = Math.max(3, Math.round(bh * 0.75))
+    const legW = Math.max(2, Math.round(bw * 0.65))
+    const sockH = Math.max(1, Math.round(legH * 0.4))
+    const bootH = Math.max(2, Math.round(bh * 0.35))
+    const armW = Math.max(2, Math.round(bw * 0.35))
 
-  private drawPlayer(): void {
-    const g = this.playerGraphics
-    g.clear()
-    const { playerX: cx, playerY: cy } = this
-    const bw = PLAYER_BODY_HALF_WIDTH
-    const bh = PLAYER_BODY_HALF_HEIGHT
-    const hr = PLAYER_HEAD_RADIUS
-
-    // Shadow
-    g.fillStyle(0x000000, 0.18)
-    g.fillEllipse(cx + 3, cy + bh + 22, bw * 2.5, 8)
-
-    // Shorts (dark, bottom half of body)
-    g.fillStyle(0x1a1a5e)
+    // Shorts (black)
+    g.fillStyle(0x111111)
     g.fillRect(cx - bw, cy, bw * 2, bh)
 
-    // Jersey (yellow, top half of body)
-    g.fillStyle(0xf5d800)
-    g.fillRect(cx - bw, cy - bh, bw * 2, bh)
+    // Jersey — vertical black/white stripes
+    const nStripes = 4
+    const stripeW = Math.round(bw * 2 / nStripes)
+    for (let i = 0; i < nStripes; i++) {
+      g.fillStyle(i % 2 === 0 ? 0x111111 : 0xffffff)
+      g.fillRect(cx - bw + i * stripeW, cy - bh, stripeW, bh)
+    }
 
-    // Jersey number
-    g.fillStyle(0x000000, 0.5)
-    g.fillRect(cx - 4, cy - bh + 4, 8, 7)
-
-    // Left arm
-    g.fillStyle(0xf5d800)
-    g.fillRect(cx - bw - 5, cy - bh + 2, 6, bh * 0.8)
-
-    // Right arm
-    g.fillRect(cx + bw, cy - bh + 2, 6, bh * 0.8)
-
-    // Left leg (skin)
-    g.fillStyle(0xf4c098)
-    g.fillRect(cx - bw + 2, cy + bh, 10, 13)
-
-    // Right leg
-    g.fillRect(cx + bw - 12, cy + bh, 10, 13)
-
-    // Left sock (white)
-    g.fillStyle(0xffffff)
-    g.fillRect(cx - bw + 2, cy + bh + 10, 10, 5)
-
-    // Right sock
-    g.fillRect(cx + bw - 12, cy + bh + 10, 10, 5)
-
-    // Left boot (black)
+    // Arms (black)
     g.fillStyle(0x111111)
-    g.fillRect(cx - bw, cy + bh + 14, 14, 6)
+    g.fillRect(cx - bw - armW, cy - bh + Math.round(bh * 0.1), armW, Math.round(bh * 0.7))
+    g.fillRect(cx + bw, cy - bh + Math.round(bh * 0.1), armW, Math.round(bh * 0.7))
 
-    // Right boot
-    g.fillRect(cx + bw - 14, cy + bh + 14, 14, 6)
+    // Legs (skin)
+    g.fillStyle(0xf4c098)
+    g.fillRect(cx - bw + 1, cy + bh, legW, legH)
+    g.fillRect(cx + bw - legW - 1, cy + bh, legW, legH)
+
+    // Socks (white)
+    g.fillStyle(0xffffff)
+    g.fillRect(cx - bw + 1, cy + bh + legH - sockH, legW, sockH)
+    g.fillRect(cx + bw - legW - 1, cy + bh + legH - sockH, legW, sockH)
+
+    // Boots (black)
+    g.fillStyle(0x111111)
+    g.fillRect(cx - bw - 1, cy + bh + legH, legW + 2, bootH)
+    g.fillRect(cx + bw - legW - 3, cy + bh + legH, legW + 2, bootH)
 
     // Head
     g.fillStyle(0xf4c098)
@@ -394,12 +410,46 @@ export class KeepieTuppiesScene extends MiniGameScene {
 
     // Hair
     g.fillStyle(0x3a2010)
-    g.fillCircle(cx, cy - bh - hr * 1.55, hr * 0.85)
+    g.fillCircle(cx, cy - bh - Math.round(hr * 1.55), Math.round(hr * 0.85))
 
     // Eyes
     g.fillStyle(0x1a1a1a)
-    g.fillCircle(cx - 3, cy - bh - hr - 1, 1.5)
-    g.fillCircle(cx + 3, cy - bh - hr - 1, 1.5)
+    const eyeOff = Math.max(1, Math.round(hr * 0.35))
+    const eyeR = Math.max(1, Math.round(hr * 0.2))
+    g.fillCircle(cx - eyeOff, cy - bh - hr - 1, eyeR)
+    g.fillCircle(cx + eyeOff, cy - bh - hr - 1, eyeR)
+
+    // Whistle
+    g.fillStyle(0xf5d800)
+    g.fillRect(cx + 2, cy - bh - 4, 5, 3)
+  }
+
+  private drawPlayer(): void {
+    const g = this.playerGraphics
+    g.clear()
+
+    // Blink when frozen
+    g.setAlpha(this.playerFrozen
+      ? (Math.floor(this.time.now / 120) % 2 === 0 ? 0.35 : 1.0)
+      : 1.0)
+
+    // Shadow
+    g.fillStyle(0x000000, 0.18)
+    g.fillEllipse(
+      this.playerX + 3,
+      this.playerY + PLAYER_BODY_HALF_HEIGHT + 22,
+      PLAYER_BODY_HALF_WIDTH * 2.5, 8,
+    )
+
+    this.drawPlayerFigure(
+      g, this.playerX, this.playerY,
+      PLAYER_BODY_HALF_WIDTH, PLAYER_BODY_HALF_HEIGHT, PLAYER_HEAD_RADIUS,
+      0xf5d800, 0x1a1a5e, 0x3a2010,
+    )
+
+    // Jersey number
+    g.fillStyle(0x000000, 0.5)
+    g.fillRect(this.playerX - 4, this.playerY - PLAYER_BODY_HALF_HEIGHT + 4, 8, 7)
   }
 
   private drawBall(): void {
@@ -408,18 +458,13 @@ export class KeepieTuppiesScene extends MiniGameScene {
     const r = this.ballRadius
     const { ballX: bx, ballY: by } = this
 
-    // Blink when frozen
-    const alpha = this.ballFrozen
-      ? (Math.floor(this.time.now / 120) % 2 === 0 ? 0.3 : 1.0)
-      : 1.0
-
-    g.fillStyle(0x000000, 0.18 * alpha)
+    g.fillStyle(0x000000, 0.18)
     g.fillEllipse(bx + 2, by + 3, r * 2.2, r * 0.7)
 
-    g.fillStyle(0xf4f4f0, alpha)
+    g.fillStyle(0xf4f4f0)
     g.fillCircle(bx, by, r)
 
-    g.fillStyle(0x1a1a1a, alpha)
+    g.fillStyle(0x1a1a1a)
     g.fillCircle(bx, by - r * 0.35, r * 0.28)
     g.fillCircle(bx - r * 0.42, by + r * 0.28, r * 0.22)
     g.fillCircle(bx + r * 0.42, by + r * 0.28, r * 0.22)
@@ -434,8 +479,12 @@ export class KeepieTuppiesScene extends MiniGameScene {
 
   // ─── Input & movement ─────────────────────────────────────────────────────────
 
-  private movePlayerTo(screenX: number): void {
-    this.playerX = Phaser.Math.Clamp(screenX, PLAYER_BODY_HALF_WIDTH + 4, this.scale.width - PLAYER_BODY_HALF_WIDTH - 4)
+  private setTargetPlayerX(screenX: number): void {
+    this.targetPlayerX = Phaser.Math.Clamp(
+      screenX,
+      PLAYER_BODY_HALF_WIDTH + 4,
+      this.scale.width - PLAYER_BODY_HALF_WIDTH - 4,
+    )
   }
 
   private placeBallOnPlayer(): void {
@@ -480,13 +529,25 @@ export class KeepieTuppiesScene extends MiniGameScene {
   // ─── Update ──────────────────────────────────────────────────────────────────
 
   update(_time: number, deltaMs: number): void {
-    if (!this.isGameOver && !this.waiting) {
-      // Unfreeze when timer expires
-      if (this.ballFrozen && this.time.now >= this.frozenUntilMs) {
-        this.ballFrozen = false
+    // Unfreeze player when timer expires
+    if (this.playerFrozen && this.time.now >= this.playerFrozenUntilMs) {
+      this.playerFrozen = false
+    }
+
+    if (!this.isGameOver) {
+      // Move player toward touch target at limited speed
+      if (!this.playerFrozen) {
+        const dx = this.targetPlayerX - this.playerX
+        const maxMove = PLAYER_MAX_SPEED * (deltaMs / 1000)
+        this.playerX = Math.abs(dx) <= maxMove
+          ? this.targetPlayerX
+          : this.playerX + Math.sign(dx) * maxMove
       }
 
-      if (!this.ballFrozen) {
+      if (this.waiting) {
+        // Ball sits on top of player while waiting to launch
+        if (!this.playerFrozen) this.placeBallOnPlayer()
+      } else {
         const dt = deltaMs / 1000
         this.ballX += this.ballVelocityX * dt
         this.ballY += this.ballVelocityY * dt
@@ -497,7 +558,7 @@ export class KeepieTuppiesScene extends MiniGameScene {
         this.checkBallLost()
       }
 
-      // Referees move even while ball is frozen
+      // Referees always move
       this.updateReferees(deltaMs / 1000)
     }
 
@@ -568,13 +629,11 @@ export class KeepieTuppiesScene extends MiniGameScene {
         this.updateHud()
         this.cameras.main.shake(30, 0.004)
       } else {
-        // First hit on armoured block — redraw cracked
         this.drawDefenderBlock(block)
         this.currentScore += POINTS_PER_DEFENDER
         this.updateHud()
       }
 
-      // Reflect off the closest face
       const overlapTop = this.ballY + r - (block.centerY - block.halfHeight)
       const overlapBottom = block.centerY + block.halfHeight - (this.ballY - r)
       const overlapLeft = this.ballX + r - (block.centerX - block.halfWidth)
@@ -597,17 +656,17 @@ export class KeepieTuppiesScene extends MiniGameScene {
     const r = this.ballRadius
 
     for (const referee of this.referees) {
-      const inX = this.ballX + r > referee.x - REFEREE_HALF_WIDTH && this.ballX - r < referee.x + REFEREE_HALF_WIDTH
-      const inY = this.ballY + r > referee.y - REFEREE_HALF_HEIGHT && this.ballY - r < referee.y + REFEREE_HALF_HEIGHT
+      const inX = this.ballX + r > referee.x - REFEREE_HITBOX_HALF_WIDTH &&
+                  this.ballX - r < referee.x + REFEREE_HITBOX_HALF_WIDTH
+      const inY = this.ballY + r > referee.y - REFEREE_HITBOX_HALF_HEIGHT &&
+                  this.ballY - r < referee.y + REFEREE_HITBOX_HALF_HEIGHT
 
       if (!inX || !inY) continue
 
-      // Freeze the ball
-      if (!this.ballFrozen) {
-        this.ballFrozen = true
-        this.frozenUntilMs = this.time.now + FREEZE_DURATION_MS
-
-        // Flash the referee
+      // Freeze the player (ball keeps moving)
+      if (!this.playerFrozen) {
+        this.playerFrozen = true
+        this.playerFrozenUntilMs = this.time.now + FREEZE_DURATION_MS
         this.tweens.add({
           targets: referee.graphics,
           alpha: 0.2,
@@ -617,15 +676,17 @@ export class KeepieTuppiesScene extends MiniGameScene {
         })
       }
 
-      // Still bounce off it so the ball doesn't clip through
-      const overlapTop = this.ballY + r - (referee.y - REFEREE_HALF_HEIGHT)
-      const overlapBottom = referee.y + REFEREE_HALF_HEIGHT - (this.ballY - r)
-      const overlapLeft = this.ballX + r - (referee.x - REFEREE_HALF_WIDTH)
-      const overlapRight = referee.x + REFEREE_HALF_WIDTH - (this.ballX - r)
+      // Ball still bounces off the referee
+      const overlapTop = this.ballY + r - (referee.y - REFEREE_HITBOX_HALF_HEIGHT)
+      const overlapBottom = referee.y + REFEREE_HITBOX_HALF_HEIGHT - (this.ballY - r)
+      const overlapLeft = this.ballX + r - (referee.x - REFEREE_HITBOX_HALF_WIDTH)
+      const overlapRight = referee.x + REFEREE_HITBOX_HALF_WIDTH - (this.ballX - r)
 
       if (Math.min(overlapTop, overlapBottom) <= Math.min(overlapLeft, overlapRight)) {
         this.ballVelocityY *= -1
-        this.ballY += this.ballVelocityY > 0 ? (referee.y + REFEREE_HALF_HEIGHT - (this.ballY - r)) : -(this.ballY + r - (referee.y - REFEREE_HALF_HEIGHT))
+        this.ballY += this.ballVelocityY > 0
+          ? (referee.y + REFEREE_HITBOX_HALF_HEIGHT + r - this.ballY)
+          : -(this.ballY + r - (referee.y - REFEREE_HITBOX_HALF_HEIGHT))
       } else {
         this.ballVelocityX *= -1
       }
@@ -637,11 +698,11 @@ export class KeepieTuppiesScene extends MiniGameScene {
     const { width } = this.scale
     for (const referee of this.referees) {
       referee.x += referee.velocityX * dt
-      if (referee.x - REFEREE_HALF_WIDTH < 0) {
-        referee.x = REFEREE_HALF_WIDTH
+      if (referee.x - REFEREE_HITBOX_HALF_WIDTH < 0) {
+        referee.x = REFEREE_HITBOX_HALF_WIDTH
         referee.velocityX = Math.abs(referee.velocityX)
-      } else if (referee.x + REFEREE_HALF_WIDTH > width) {
-        referee.x = width - REFEREE_HALF_WIDTH
+      } else if (referee.x + REFEREE_HITBOX_HALF_WIDTH > width) {
+        referee.x = width - REFEREE_HITBOX_HALF_WIDTH
         referee.velocityX = -Math.abs(referee.velocityX)
       }
     }
@@ -656,7 +717,7 @@ export class KeepieTuppiesScene extends MiniGameScene {
 
     this.lives--
     this.comboCount = 0
-    this.ballFrozen = false
+    this.playerFrozen = false
     this.updateHud()
 
     if (this.lives <= 0) {
