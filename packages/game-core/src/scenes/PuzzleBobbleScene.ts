@@ -50,6 +50,7 @@ export class PuzzleBobbleScene extends MiniGameScene {
   private nextColor = BALL_COLORS[0]!
   private aimX = 0
   private aimY = 0
+  private isAiming = false    // pointer is held down
   private shotsFired = 0
   private isGameOver = false
   private isWaiting = false
@@ -63,6 +64,7 @@ export class PuzzleBobbleScene extends MiniGameScene {
 
     this.isGameOver = false
     this.isWaiting = false
+    this.isAiming = false
     this.shotsFired = 0
     this.grid.clear()
     this.flyingBall = null
@@ -77,7 +79,7 @@ export class PuzzleBobbleScene extends MiniGameScene {
     this.wallLeft = this.gridMarginX
     this.wallRight = width - this.gridMarginX
     this.aimX = width / 2
-    this.aimY = 0
+    this.aimY = this.shooterY - 80
 
     this.currentColor = this.randomColor()
     this.nextColor = this.randomColor()
@@ -96,22 +98,35 @@ export class PuzzleBobbleScene extends MiniGameScene {
       .setOrigin(0.5, 0)
 
     this.drawShooter()
-    this.drawTrajectory()
     this.updateHud()
 
-    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+    // Drag to aim — release to shoot
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
       if (this.isGameOver || this.isWaiting) return
+      this.isAiming = true
       this.aimX = p.x
       this.aimY = p.y
       this.drawShooter()
       this.drawTrajectory()
     })
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
-      if (this.isGameOver || this.isWaiting || p.y >= this.shooterY) return
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+      if (!this.isAiming) return
       this.aimX = p.x
       this.aimY = p.y
-      this.shoot()
+      this.drawShooter()
+      this.drawTrajectory()
     })
+    this.input.on(Phaser.Input.Events.POINTER_UP, () => {
+      if (!this.isAiming) return
+      this.isAiming = false
+      if (!this.isGameOver && !this.isWaiting && this.aimY < this.shooterY) {
+        this.shoot()
+      } else {
+        this.trajectoryGraphics.clear()
+        this.drawShooter()
+      }
+    })
+
 
     this.emitGameReady()
   }
@@ -128,10 +143,12 @@ export class PuzzleBobbleScene extends MiniGameScene {
     }
   }
 
+  // Draw each grid ball at local (0,0) so Phaser can tween x/y/alpha for animations.
   private addGridBall(row: number, col: number, color: number): void {
     const { x, y } = this.gridToScreen(row, col)
     const g = this.add.graphics()
-    this.drawSoccerBall(g, x, y, this.ballRadius, color)
+    g.setPosition(x, y)
+    this.drawSoccerBall(g, 0, 0, this.ballRadius, color)
     this.grid.set(`${row},${col}`, { color, graphics: g, x, y })
   }
 
@@ -198,7 +215,7 @@ export class PuzzleBobbleScene extends MiniGameScene {
     return [...visited]
   }
 
-  private removeDisconnected(): number {
+  private findDisconnected(): string[] {
     const connected = new Set<string>()
     const queue: string[] = []
     for (const key of this.grid.keys()) {
@@ -212,37 +229,63 @@ export class PuzzleBobbleScene extends MiniGameScene {
         if (!connected.has(nk) && this.grid.has(nk)) { connected.add(nk); queue.push(nk) }
       }
     }
-    let count = 0
-    for (const key of [...this.grid.keys()]) {
-      if (!connected.has(key)) {
-        this.grid.get(key)!.graphics.destroy()
-        this.grid.delete(key)
-        count++
-      }
-    }
-    return count
+    return [...this.grid.keys()].filter(k => !connected.has(k))
   }
 
   private processLanding(row: number, col: number, color: number): void {
     const matched = this.floodFill(row, col, color)
+    let animDelay = 200
 
     if (matched.length >= MIN_MATCH) {
-      for (const key of matched) { this.grid.get(key)!.graphics.destroy(); this.grid.delete(key) }
+      animDelay = 500
+
+      // Remove matched from grid data, then animate them popping out
+      for (const key of matched) {
+        const ball = this.grid.get(key)!
+        this.grid.delete(key)
+        this.tweens.add({
+          targets: ball.graphics,
+          alpha: 0,
+          duration: 200,
+          ease: 'Power2.Out',
+          onComplete: () => { ball.graphics.destroy() },
+        })
+      }
       this.currentScore += matched.length * 10
       this.cameras.main.shake(40, 0.005)
-      const cascaded = this.removeDisconnected()
-      this.currentScore += cascaded * 15
+
+      // After matched balls are logically gone, find and animate cascading falls
+      const cascadeKeys = this.findDisconnected()
+      this.currentScore += cascadeKeys.length * 15
+
+      for (const key of cascadeKeys) {
+        const ball = this.grid.get(key)!
+        this.grid.delete(key)
+        // Stagger fall slightly per ball for a natural feel
+        const stagger = Math.random() * 60
+        this.time.delayedCall(stagger, () => {
+          this.tweens.add({
+            targets: ball.graphics,
+            y: `+=${Math.round(this.scale.height * 0.35)}`,
+            alpha: 0,
+            duration: 380,
+            ease: 'Power2.In',
+            onComplete: () => { ball.graphics.destroy() },
+          })
+        })
+      }
     }
+
     this.updateHud()
 
-    if (this.grid.size === 0) { this.triggerGameOver(true); return }
-
-    // Any ball dangerously close to shooter
-    for (const ball of this.grid.values()) {
-      if (ball.y >= this.shooterY - this.ballRadius * 5) { this.triggerGameOver(false); return }
-    }
-
-    this.time.delayedCall(200, () => { this.loadNextBall() })
+    this.time.delayedCall(animDelay, () => {
+      if (this.isGameOver) return
+      if (this.grid.size === 0) { this.triggerGameOver(true); return }
+      for (const ball of this.grid.values()) {
+        if (ball.y >= this.shooterY - this.ballRadius * 5) { this.triggerGameOver(false); return }
+      }
+      this.loadNextBall()
+    })
   }
 
   // ─── Game flow ────────────────────────────────────────────────────────────────
@@ -256,7 +299,6 @@ export class PuzzleBobbleScene extends MiniGameScene {
     this.nextColor = this.randomColor()
     this.isWaiting = false
     this.drawShooter()
-    this.drawTrajectory()
   }
 
   private shoot(): void {
@@ -264,7 +306,7 @@ export class PuzzleBobbleScene extends MiniGameScene {
     const angle = this.getAimAngle()
     this.flyingBall = {
       x: this.shooterX,
-      y: this.shooterY - this.ballRadius,
+      y: this.shooterY,       // launch from ball centre
       velX: Math.cos(angle) * BALL_SPEED,
       velY: Math.sin(angle) * BALL_SPEED,
       color: this.currentColor,
@@ -298,11 +340,9 @@ export class PuzzleBobbleScene extends MiniGameScene {
     const g = this.backgroundGraphics
     g.clear()
 
-    // Stadium night sky
     g.fillStyle(0x1a1a3e)
     g.fillRect(0, 0, width, height)
 
-    // Crowd stands
     g.fillStyle(0x353560)
     g.fillRect(0, height * 0.68, width, height * 0.10)
     for (let i = 0; i < 28; i++) {
@@ -310,7 +350,6 @@ export class PuzzleBobbleScene extends MiniGameScene {
       g.fillCircle(Math.floor(i * (width / 28)) + 4, height * 0.68 + (i % 2) * 7 + 5, 3)
     }
 
-    // Pitch
     g.fillStyle(0x22883a)
     g.fillRect(0, height * 0.78, width, height * 0.22)
     g.fillStyle(0x1e7d35, 0.5)
@@ -318,26 +357,20 @@ export class PuzzleBobbleScene extends MiniGameScene {
     for (let i = 0; i < 6; i += 2) g.fillRect(i * sw, height * 0.78, sw, height * 0.22)
     g.lineStyle(2, 0x55aa66, 0.6)
     g.lineBetween(0, height * 0.78, width, height * 0.78)
-
-    // Separator between grid area and shooting area
     g.lineStyle(1, 0x445577, 0.6)
     g.lineBetween(0, height * 0.68, width, height * 0.68)
   }
 
   private drawSoccerBall(g: Phaser.GameObjects.Graphics, x: number, y: number, r: number, color: number): void {
-    // Shadow
     g.fillStyle(0x000000, 0.25)
     g.fillEllipse(x + 1, y + 2, r * 2.1, r * 0.65)
 
-    // Base color
     g.fillStyle(color)
     g.fillCircle(x, y, r)
 
-    // Highlight
     g.fillStyle(0xffffff, 0.38)
     g.fillCircle(x - r * 0.28, y - r * 0.3, r * 0.38)
 
-    // Black pentagon patches
     g.fillStyle(0x111111, 0.85)
     g.fillCircle(x, y, r * 0.26)
     g.fillCircle(x + r * 0.46, y - r * 0.27, r * 0.17)
@@ -353,36 +386,31 @@ export class PuzzleBobbleScene extends MiniGameScene {
     const cy = this.shooterY
     const r = this.ballRadius
 
-    // Platform base
     g.fillStyle(0x2a2a4a)
     g.fillRect(cx - r * 3, cy + r * 1.1, r * 6, r * 1.2)
     g.lineStyle(1, 0x4455aa)
     g.strokeRect(cx - r * 3, cy + r * 1.1, r * 6, r * 1.2)
 
-    // Aim direction indicator
-    const angle = this.getAimAngle()
-    g.lineStyle(1, 0xffffff, 0.4)
-    g.lineBetween(cx, cy - r, cx + Math.cos(angle) * r * 2.8, cy - r + Math.sin(angle) * r * 2.8)
+    // Aim arrow — only while actively dragging, originates from ball centre
+    if (this.isAiming) {
+      const angle = this.getAimAngle()
+      g.lineStyle(2, 0xffffff, 0.55)
+      g.lineBetween(cx, cy, cx + Math.cos(angle) * r * 3, cy + Math.sin(angle) * r * 3)
+    }
 
-    // Current ball
     this.drawSoccerBall(g, cx, cy, r, this.currentColor)
-
-    // Next ball preview (right side)
     this.drawSoccerBall(g, cx + r * 3.8, cy + r * 0.2, Math.round(r * 0.65), this.nextColor)
-
-    // "NEXT" micro label
-    g.fillStyle(0xaaaacc)
-    // (skip text, the smaller ball speaks for itself)
   }
 
   private drawTrajectory(): void {
     const g = this.trajectoryGraphics
     g.clear()
-    if (this.isWaiting || this.isGameOver) return
+    if (!this.isAiming || this.isWaiting || this.isGameOver) return
 
     const angle = this.getAimAngle()
+    // Start from ball centre — same origin as the aim arrow
     let x = this.shooterX
-    let y = this.shooterY - this.ballRadius
+    let y = this.shooterY
     let cvx = Math.cos(angle) * BALL_SPEED
     let cvy = Math.sin(angle) * BALL_SPEED
     const r = this.ballRadius
@@ -433,19 +461,22 @@ export class PuzzleBobbleScene extends MiniGameScene {
     ball.x += ball.velX * dt
     ball.y += ball.velY * dt
 
-    // Wall bounce
     if (ball.x - r < this.wallLeft) { ball.x = this.wallLeft + r; ball.velX = Math.abs(ball.velX) }
     else if (ball.x + r > this.wallRight) { ball.x = this.wallRight - r; ball.velX = -Math.abs(ball.velX) }
 
-    // Grid collision
+    // Check grid collision — record which ball was hit for bounce animation
     let landed = false
+    let hitBall: GridBall | null = null
     for (const gridBall of this.grid.values()) {
       const dx = ball.x - gridBall.x
       const dy = ball.y - gridBall.y
-      if (dx * dx + dy * dy < (r * 1.95) ** 2) { landed = true; break }
+      if (dx * dx + dy * dy < (r * 1.95) ** 2) {
+        landed = true
+        hitBall = gridBall
+        break
+      }
     }
 
-    // Top wall
     if (ball.y - r <= this.gridTopY) {
       ball.y = this.gridTopY + r
       landed = true
@@ -458,18 +489,27 @@ export class PuzzleBobbleScene extends MiniGameScene {
       this.flyingBall = null
       this.drawFlyingBall()
 
+      // Brief flash on the ball that was collided with
+      if (hitBall) {
+        this.tweens.add({
+          targets: hitBall.graphics,
+          alpha: 0.3,
+          duration: 55,
+          yoyo: true,
+          ease: 'Power2',
+        })
+      }
+
       const cell = this.findLandingCell(savedX, savedY)
       if (cell) {
         this.addGridBall(cell.row, cell.col, savedColor)
         this.processLanding(cell.row, cell.col, savedColor)
       } else {
-        // No free cell found — just load next ball
         this.time.delayedCall(200, () => { this.loadNextBall() })
       }
       return
     }
 
-    // Fell off bottom — load next ball
     if (ball.y > this.scale.height + r * 2) {
       this.flyingBall = null
       this.loadNextBall()
