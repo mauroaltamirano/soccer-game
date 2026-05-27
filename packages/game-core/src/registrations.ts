@@ -5,6 +5,7 @@ import { KeepieTuppiesScene } from './scenes/KeepieTuppiesScene.ts'
 import { FreeKickScene } from './scenes/FreeKickScene.ts'
 import { DribblingSlalomScene } from './scenes/DribblingSlalomScene.ts'
 import { HeaderChallengeScene } from './scenes/HeaderChallengeScene.ts'
+import { PuzzleBobbleScene } from './scenes/PuzzleBobbleScene.ts'
 
 registerGame({
   id: 'penalty-kick',
@@ -58,4 +59,13 @@ registerGame({
   thumbnailTextureKey: 'thumbnail-header-challenge',
   sceneClass: HeaderChallengeScene,
   tags: ['timing', 'shooting'],
+})
+
+registerGame({
+  id: 'puzzle-bobble',
+  title: 'Ball Blast',
+  description: 'Shoot colored soccer balls to match and clear the field.',
+  thumbnailTextureKey: 'thumbnail-puzzle-bobble',
+  sceneClass: PuzzleBobbleScene,
+  tags: ['puzzle', 'match'],
 })
